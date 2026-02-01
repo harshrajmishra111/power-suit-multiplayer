@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Power Suit - Multiplayer Card Game</title>
+    <link href="https://fonts.googleapis.com/css2?family=Righteous&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        /* ===== BASE ===== */
+        * { margin:0; padding:0; box-sizing:border-box; }
+        :root {
+            --bg-dark:#0a0e27; --bg-medium:#1a1f3a; --accent-red:#ff3366;
+            --accent-blue:#00d4ff; --accent-gold:#ffd700; --card-bg:#ffffff;
+            --text-light:#e0e0e0; --spade:#2c3e50; --heart:#e74c3c;
+            --club:#27ae60; --diamond:#3498db;
+        }
+        body {
+            font-family:'Space Mono',monospace;
+            background:linear-gradient(135deg,var(--bg-dark) 0%,#1a1a2e 50%,var(--bg-medium) 100%);
+            color:var(--text-light); min-height:100vh; overflow-x:hidden;
+        }
+        body::before {
+            content:''; position:fixed; top:0; left:0; right:0; bottom:0;
+            background:radial-gradient(circle at 20% 50%,rgba(255,51,102,.1) 0%,transparent 50%),
+                       radial-gradient(circle at 80% 50%,rgba(0,212,255,.1) 0%,transparent 50%);
+            pointer-events:none; animation:pulse 8s ease-in-out infinite; z-index:0;
+        }
+        @keyframes pulse{0%,100%{opacity:.5}50%{opacity:.8}}
+        .container{max-width:1400px;margin:0 auto;padding:1rem;position:relative;z-index:1}
+        @media(min-width:768px){.container{padding:2rem}}
+
+        /* ===== HEADER ===== */
+        header{text-align:center;margin-bottom:2rem;animation:slideDown .8s ease-out}
+        @keyframes slideDown{from{opacity:0;transform:translateY(-50px)}to{opacity:1;transform:translateY(0)}}
+        h1{font-family:'Righteous',cursive;font-size:2.5rem;background:linear-gradient(135deg,var(--accent-red),var(--accent-blue),var(--accent-gold));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:.5rem;text-transform:uppercase;letter-spacing:.1em}
+        @media(min-width:768px){h1{font-size:4rem}}
+        .subtitle{font-size:.9rem;opacity:.8;letter-spacing:.2em}
+        @media(min-width:768px){.subtitle{font-size:1.2rem}}
+
+        /* ===== SCREENS ===== */
+        .screen{display:none}
+        .screen.active{display:block;animation:fadeIn .5s ease-out}
+        @keyframes fadeIn{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
+
+        /* ===== MENU ===== */
+        .menu-screen{display:flex;flex-direction:column;gap:1rem;max-width:600px;margin:0 auto}
+        @media(min-width:768px){.menu-screen{flex-direction:row;gap:2rem}}
+        .menu-card{background:rgba(26,31,58,.8);backdrop-filter:blur(10px);border-radius:20px;padding:2rem;border:2px solid rgba(255,51,102,.3);text-align:center;flex:1;transition:all .3s ease}
+        .menu-card:hover{transform:translateY(-5px);border-color:var(--accent-blue);box-shadow:0 10px 30px rgba(0,212,255,.3)}
+        .menu-card h2{font-family:'Righteous',cursive;font-size:1.5rem;margin-bottom:1rem;color:var(--accent-blue)}
+        .menu-card p{margin-bottom:1.5rem;opacity:.8;font-size:.9rem}
+
+        /* ===== FORMS ===== */
+        .form-group{margin-bottom:1.5rem;text-align:left}
+        label{display:block;margin-bottom:.5rem;font-weight:bold;color:var(--accent-gold);font-size:.9rem}
+        input,select{width:100%;padding:.8rem;background:rgba(255,255,255,.1);border:2px solid rgba(0,212,255,.3);border-radius:10px;color:var(--text-light);font-family:'Space Mono',monospace;font-size:1rem;transition:all .3s ease}
+        input:focus,select:focus{outline:none;border-color:var(--accent-blue);background:rgba(255,255,255,.15)}
+        input::placeholder{color:rgba(224,224,224,.5)}
+        option{background:var(--bg-dark);color:var(--text-light)}
+
+        /* ===== BUTTONS ===== */
+        button{width:100%;padding:1rem;background:linear-gradient(135deg,var(--accent-red),var(--accent-blue));border:none;border-radius:10px;color:#fff;font-family:'Righteous',cursive;font-size:1.1rem;cursor:pointer;transition:all .3s ease;text-transform:uppercase;letter-spacing:.1em;position:relative;overflow:hidden}
+        button::before{content:'';position:absolute;top:50%;left:50%;width:0;height:0;border-radius:50%;background:rgba(255,255,255,.3);transform:translate(-50%,-50%);transition:width .6s,height .6s}
+        button:hover::before{width:300px;height:300px}
+        button:hover{transform:scale(1.05);box-shadow:0 10px 30px rgba(255,51,102,.5)}
+        button:active{transform:scale(.98)}
+        button:disabled{opacity:.5;cursor:not-allowed;transform:none}
+        button:disabled:hover{transform:none;box-shadow:none}
+        .btn-secondary{background:linear-gradient(135deg,#666,#999)}
+        .btn-success{background:linear-gradient(135deg,#27ae60,#2ecc71)}
+
+        /* ===== WAITING ROOM ===== */
+        .waiting-room{background:rgba(26,31,58,.9);backdrop-filter:blur(10px);border-radius:20px;padding:1.5rem;max-width:600px;margin:0 auto;border:2px solid var(--accent-gold)}
+        .waiting-room h2{font-family:'Righteous',cursive;font-size:1.5rem;margin-bottom:1.5rem;text-align:center;color:var(--accent-blue)}
+        .room-id{background:rgba(255,215,0,.1);padding:1rem;border-radius:10px;text-align:center;margin-bottom:2rem;border:2px solid var(--accent-gold)}
+        .room-id-label{font-size:.9rem;opacity:.8;margin-bottom:.5rem}
+        .room-id-value{font-family:'Righteous',cursive;font-size:1.8rem;color:var(--accent-gold);letter-spacing:.2em}
+        .players-list{margin:2rem 0}
+        .players-list h3{font-family:'Righteous',cursive;margin-bottom:1rem;color:var(--accent-gold)}
+        .player-item{background:rgba(255,255,255,.05);padding:1rem;border-radius:10px;margin-bottom:.5rem;display:flex;justify-content:space-between;align-items:center}
+        .player-item.ready{border:2px solid #4caf50;background:rgba(76,175,80,.1)}
+        .status-badge{padding:.3rem .8rem;border-radius:20px;font-size:.8rem;font-weight:bold}
+        .status-ready{background:#4caf50;color:#fff}
+        .status-waiting{background:rgba(255,255,255,.2);color:var(--text-light)}
+
+        /* ===== CARDS ===== */
+        .card{width:70px;height:100px;background:var(--card-bg);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:1.8rem;font-weight:bold;cursor:pointer;transition:all .3s ease;box-shadow:0 3px 10px rgba(0,0,0,.3);border:3px solid rgba(0,0,0,.1)}
+        @media(min-width:768px){.card{width:120px;height:170px;font-size:3rem}}
+        .card:hover:not(.disabled){transform:translateY(-10px) scale(1.05);box-shadow:0 10px 20px rgba(0,0,0,.5);z-index:10}
+        .card.disabled{opacity:.45;cursor:not-allowed}
+        .card.disabled:hover{transform:none}
+        .card.power-set{border:4px solid var(--accent-gold);box-shadow:0 0 20px rgba(255,215,0,.6),0 3px 10px rgba(0,0,0,.3);animation:powerGlow 2s ease-in-out infinite}
+        @keyframes powerGlow{0%,100%{box-shadow:0 0 15px rgba(255,215,0,.5),0 3px 10px rgba(0,0,0,.3)}50%{box-shadow:0 0 30px rgba(255,215,0,.9),0 3px 10px rgba(0,0,0,.3)}}
+        .card.spade{color:var(--spade)} .card.heart{color:var(--heart)} .card.club{color:var(--club)} .card.diamond{color:var(--diamond)}
+        .card-suit{font-size:1.3rem;margin-top:.3rem}
+        @media(min-width:768px){.card-suit{font-size:2rem;margin-top:.5rem}}
+
+        /* ===== GAME INFO ===== */
+        .game-info{background:rgba(26,31,58,.9);padding:1rem;border-radius:15px;margin-bottom:1.5rem;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:.5rem;border:2px solid rgba(0,212,255,.3)}
+        .info-item{display:flex;align-items:center;gap:.5rem;font-size:.85rem}
+        .info-label{font-weight:bold;color:var(--accent-gold)}
+        .trump-display{font-size:1.5rem;padding:.3rem .8rem;background:rgba(255,255,255,.1);border-radius:8px;border:2px solid var(--accent-gold)}
+        .turn-timer-badge{background:var(--accent-red);color:#fff;padding:.4rem .8rem;border-radius:20px;font-weight:bold;animation:timerPulse 1s ease-in-out infinite;font-size:.9rem}
+        @keyframes timerPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
+
+        /* ===== PLAYERS AREA ===== */
+        .players-area{display:grid;grid-template-columns:1fr;gap:.8rem;margin-bottom:1.5rem}
+        @media(min-width:768px){.players-area{grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1rem}}
+        .player-card{background:rgba(26,31,58,.8);backdrop-filter:blur(10px);padding:1rem;border-radius:15px;border:3px solid rgba(255,255,255,.1);transition:all .3s ease}
+        .player-card.active{border-color:var(--accent-gold);box-shadow:0 0 20px rgba(255,215,0,.5);transform:scale(1.02)}
+        .player-card.you{border-color:var(--accent-blue)}
+        .player-name{font-family:'Righteous',cursive;font-size:1rem;margin-bottom:.8rem;color:var(--accent-blue)}
+        .player-stats{display:grid;grid-template-columns:1fr 1fr;gap:.5rem;font-size:.75rem}
+        .stat{background:rgba(255,255,255,.05);padding:.4rem;border-radius:5px}
+        .stat-label{color:var(--accent-gold);font-weight:bold}
+
+        /* ===== PLAYING AREA ===== */
+        .playing-area{background:rgba(26,31,58,.6);backdrop-filter:blur(10px);border-radius:20px;padding:1.5rem;min-height:200px;margin-bottom:1.5rem;border:2px solid rgba(0,212,255,.3)}
+        @media(min-width:768px){.playing-area{padding:3rem;min-height:350px}}
+        .trick-area{display:flex;justify-content:center;align-items:center;gap:.8rem;flex-wrap:wrap;min-height:150px}
+        @media(min-width:768px){.trick-area{gap:2rem;min-height:200px}}
+        .trick-card-wrapper{text-align:center;animation:cardPlay .5s ease-out}
+        @keyframes cardPlay{from{transform:scale(0) rotate(0);opacity:0}to{transform:scale(1) rotate(0);opacity:1}}
+        .trick-card-label{margin-top:.5rem;font-size:.8rem;opacity:.8}
+
+        /* ===== TURN INDICATOR ===== */
+        .turn-indicator{background:rgba(26,31,58,.92);backdrop-filter:blur(10px);border:2px solid rgba(255,255,255,.12);border-radius:14px;padding:1rem 1.5rem;text-align:center;margin:1rem 0;transition:all .3s ease}
+        .turn-indicator.active{border-color:var(--accent-gold);background:rgba(255,215,0,.08);box-shadow:0 0 18px rgba(255,215,0,.28)}
+        .turn-indicator.winner-state{border-color:#4caf50;background:rgba(76,175,80,.1)}
+        .turn-message{font-family:'Righteous',cursive;font-size:1.25rem;color:var(--accent-gold);letter-spacing:.05em}
+        .turn-indicator.active .turn-message{animation:pulse-text 1.6s ease-in-out infinite}
+        @keyframes pulse-text{0%,100%{opacity:1}50%{opacity:.7}}
+
+        /* ===== PLAYER HAND ===== */
+        .player-hand{background:rgba(26,31,58,.8);backdrop-filter:blur(10px);padding:1.5rem;border-radius:20px;border:3px solid var(--accent-blue)}
+        .player-hand h3{font-family:'Righteous',cursive;font-size:1.1rem;margin-bottom:1rem;color:var(--accent-blue);text-align:center}
+        .hand-cards{display:flex;justify-content:center;gap:.3rem;flex-wrap:wrap}
+        @media(min-width:768px){.hand-cards{gap:.8rem}}
+
+        /* ===== HISTORY ===== */
+        .history-panel{background:rgba(26,31,58,.95);backdrop-filter:blur(10px);padding:1rem;border-radius:15px;margin-top:1.5rem;border:2px solid var(--accent-gold);max-height:250px;overflow-y:auto}
+        .history-panel h4{font-family:'Righteous',cursive;font-size:1.1rem;margin-bottom:1rem;color:var(--accent-gold);text-align:center;position:sticky;top:0;background:rgba(26,31,58,.95);padding:.5rem 0;z-index:10}
+        .history-item{background:rgba(255,255,255,.05);padding:.8rem;margin-bottom:.5rem;border-radius:10px;border-left:4px solid var(--accent-blue);font-size:.85rem}
+        .history-item.latest{border-left-color:var(--accent-gold);background:rgba(255,215,0,.1)}
+        .history-trick-number{font-weight:bold;color:var(--accent-gold);margin-bottom:.5rem}
+        .history-winner{font-weight:bold;color:#4caf50;margin-bottom:.5rem}
+        .history-cards{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.5rem}
+        .history-card{display:inline-flex;align-items:center;gap:.3rem;padding:.3rem .6rem;background:rgba(255,255,255,.1);border-radius:5px;font-size:.8rem}
+        .history-card.winner-card{background:rgba(76,175,80,.2);border:2px solid #4caf50}
+        .history-card-value{font-weight:bold}
+
+        /* ===== BIDDING ===== */
+        .bidding-phase{background:rgba(26,31,58,.95);backdrop-filter:blur(10px);padding:1.5rem;border-radius:20px;max-width:500px;margin:2rem auto;border:3px solid var(--accent-gold);text-align:center;animation:popIn .5s ease-out}
+        @keyframes popIn{from{opacity:0;transform:scale(.8)}to{opacity:1;transform:scale(1)}}
+        .bidding-phase h3{font-family:'Righteous',cursive;font-size:1.5rem;margin-bottom:1rem;color:var(--accent-gold)}
+        .timer{font-size:2rem;font-weight:bold;color:var(--accent-red);margin:1rem 0;animation:timerPulse 1s ease-in-out infinite}
+        .bid-input{display:flex;gap:.8rem;justify-content:center;align-items:center;margin-top:1.5rem;flex-wrap:wrap}
+        .bid-input input{width:80px;text-align:center;font-size:1.3rem;font-weight:bold}
+        .bid-input button{width:auto;padding:.8rem 1.5rem;font-size:1rem}
+
+        /* ===== MESSAGE & SCORES ===== */
+        .message-box{background:rgba(26,31,58,.95);backdrop-filter:blur(10px);padding:1rem;border-radius:15px;margin-top:1.5rem;text-align:center;border:2px solid var(--accent-gold);font-size:.95rem;animation:slideUp .5s ease-out}
+        @keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+        .scores-display{background:rgba(26,31,58,.95);backdrop-filter:blur(10px);padding:1.5rem;border-radius:20px;margin-top:2rem;border:3px solid var(--accent-gold);max-width:700px;margin-left:auto;margin-right:auto}
+        .scores-display h3{font-family:'Righteous',cursive;font-size:1.5rem;margin-bottom:1.5rem;text-align:center;color:var(--accent-gold)}
+        .score-item{background:rgba(255,255,255,.05);padding:1rem;margin-bottom:.8rem;border-radius:10px;font-size:.9rem}
+        .score-item.winner{border:2px solid var(--accent-gold);background:rgba(255,215,0,.1)}
+        .score-name{font-weight:bold;margin-bottom:.5rem;font-size:1.1rem}
+        .score-details{font-size:.9rem;opacity:.9}
+        .positive{color:#4caf50} .negative{color:var(--accent-red)}
+
+        /* ===== CONNECTION ===== */
+        .connection-status{position:fixed;top:1rem;right:1rem;background:rgba(0,0,0,.8);padding:.5rem 1rem;border-radius:20px;font-size:.8rem;z-index:1000;display:none}
+        .connection-status.connected{background:rgba(76,175,80,.8)}
+        .connection-status.disconnected{background:rgba(244,67,54,.8);display:block!important}
+
+        .hidden{display:none!important}
+    </style>
+</head>
+<body>
+<div class="connection-status" id="connectionStatus">Connecting…</div>
+<div class="container">
+    <header>
+        <h1>⚡ POWER SUIT ⚡</h1>
+        <p class="subtitle">Multiplayer Card Game</p>
+    </header>
+
+    <!-- MENU -->
+    <div class="screen active" id="menuScreen">
+        <div class="menu-screen">
+            <div class="menu-card"><h2>🎮 Create Room</h2><p>Host a game and invite friends</p><button onclick="showCreateRoom()">Create</button></div>
+            <div class="menu-card"><h2>🚪 Join Room</h2><p>Join an existing game</p><button onclick="showJoinRoom()">Join</button></div>
+        </div>
+    </div>
+
+    <!-- CREATE -->
+    <div class="screen" id="createRoomScreen">
+        <div class="waiting-room" style="max-width:500px;">
+            <h2>Create Room</h2>
+            <div class="form-group"><label>Your Name</label><input type="text" id="hostName" placeholder="Enter name" value="Host"></div>
+            <div class="form-group"><label>Room Password (4-digit PIN)</label><input type="password" id="hostPassword" placeholder="e.g. 1234" maxlength="4"><p style="font-size:.8rem;opacity:.7;margin-top:.5rem;">Numbers only – needed if you disconnect</p></div>
+            <div class="form-group"><label>Players</label><select id="numPlayers"><option value="3">3 Players</option><option value="4">4 Players</option></select></div>
+            <button onclick="createRoom()">🚀 Create Room</button>
+            <button onclick="backToMenu()" class="btn-secondary" style="margin-top:1rem;">Back</button>
+        </div>
+    </div>
+
+    <!-- JOIN -->
+    <div class="screen" id="joinRoomScreen">
+        <div class="waiting-room" style="max-width:500px;">
+            <h2>Join Room</h2>
+            <div class="form-group"><label>Your Name</label><input type="text" id="playerName" placeholder="Enter name"></div>
+            <div class="form-group"><label>Room Code</label><input type="text" id="roomIdInput" placeholder="6-character code" maxlength="6" style="text-transform:uppercase;"><p style="font-size:.8rem;opacity:.7;margin-top:.5rem;">💡 Get from host</p></div>
+            <button onclick="joinRoom()">🚪 Join</button>
+            <button onclick="backToMenu()" class="btn-secondary" style="margin-top:1rem;">Back</button>
+        </div>
+    </div>
+
+    <!-- WAITING ROOM -->
+    <div class="screen" id="waitingRoomScreen">
+        <div class="waiting-room">
+            <h2>Waiting Room</h2>
+            <div class="room-id">
+                <div class="room-id-label">📢 Share Room Code:</div>
+                <div class="room-id-value" id="displayRoomId">------</div>
+                <button onclick="copyRoomId()" style="margin-top:1rem;padding:.5rem 1rem;font-size:.9rem;" class="btn-secondary">📋 Copy</button>
+            </div>
+            <div class="players-list">
+                <h3>Players (<span id="playerCount">0</span>/<span id="maxPlayers">4</span>)</h3>
+                <div id="playersListContainer"></div>
+            </div>
+            <button onclick="readyUp()" id="readyButton" class="btn-success">✓ Ready!</button>
+            <button onclick="leaveRoom()" class="btn-secondary" style="margin-top:1rem;">Leave</button>
+        </div>
+    </div>
+
+    <!-- GAME SCREEN  – layout order: playing → turn bar → hand → history -->
+    <div class="screen" id="gameScreen">
+        <div class="game-info">
+            <div class="info-item"><span class="info-label">Round:</span><span id="roundNumber">1</span></div>
+            <div class="info-item"><span class="info-label">Power Set:</span><span class="trump-display" id="trumpDisplay">♠</span></div>
+            <div class="info-item"><span class="info-label">Trick:</span><span id="trickNumber">1/13</span></div>
+            <div class="info-item hidden" id="turnTimerDisplay"><span class="turn-timer-badge">⏱️ <span id="turnTimer">30</span>s</span></div>
+        </div>
+
+        <div class="players-area" id="playersArea"></div>
+
+        <!-- Bidding -->
+        <div class="bidding-phase hidden" id="biddingPhase">
+            <h3>🎯 Place Bid</h3><p>How many tricks will you win?</p>
+            <div class="timer" id="biddingTimer">60</div>
+            <div class="bid-input"><input type="number" id="bidAmount" min="0" max="13" value="5"><button onclick="submitBid()">Submit</button></div>
+            <p style="font-size:.85rem;opacity:.7;margin-top:1rem;">Safe Zone: Bid X → Win X to (2X-1)</p>
+        </div>
+
+        <!-- 1️⃣  Playing area -->
+        <div class="playing-area"><div class="trick-area" id="trickArea"><p style="text-align:center;opacity:.5;width:100%;">Waiting…</p></div></div>
+
+        <!-- 2️⃣  Turn indicator -->
+        <div class="turn-indicator" id="turnIndicator"><div class="turn-message" id="turnMessage">Waiting…</div></div>
+
+        <!-- 3️⃣  Your hand -->
+        <div class="player-hand"><h3>🃏 Your Hand</h3><div class="hand-cards" id="playerHand"><p style="text-align:center;opacity:.5;width:100%;">Waiting…</p></div></div>
+
+        <!-- 4️⃣  History -->
+        <div class="history-panel"><h4>📜 Trick History</h4><div id="historyContent"><p style="text-align:center;opacity:.5;">No tricks yet</p></div></div>
+
+        <!-- Messages & Scores -->
+        <div class="message-box hidden" id="messageBox"></div>
+        <div class="scores-display hidden" id="scoresDisplay"></div>
+    </div>
+</div>
+
+<script>
+// ============================================================
+// STATE
+// ============================================================
+const socket = io();
+let gs = {
+    roomId: null, playerName: null, isHost: false, playerIndex: -1,
+    players: [], hand: [], trumpSuit: null,
+    currentPlayerIndex: -1, currentTrick: [], trickHistory: [],
+    turnTimer: null, bidTimer: null,
+    isProcessing: false   // lock hand after card played
+};
+const suits = {
+    spade:{ symbol:'♠', color:'spade' },
+    heart:{ symbol:'♥', color:'heart' },
+    club:{ symbol:'♣', color:'club' },
+    diamond:{ symbol:'♦', color:'diamond' }
+};
+
+// ============================================================
+// CONNECTION
+// ============================================================
+socket.on('connect', () => {
+    const s = document.getElementById('connectionStatus');
+    s.classList.add('connected'); s.classList.remove('disconnected');
+    s.textContent = '✓ Connected';
+    setTimeout(() => { s.style.display = 'none'; }, 2000);
+});
+socket.on('disconnect', () => {
+    const s = document.getElementById('connectionStatus');
+    s.classList.add('disconnected'); s.classList.remove('connected');
+    s.textContent = '✗ Disconnected'; s.style.display = 'block';
+});
+
+// ============================================================
+// NAVIGATION
+// ============================================================
+function showScreen(id) { document.querySelectorAll('.screen').forEach(s => s.classList.remove('active')); document.getElementById(id).classList.add('active'); }
+function showCreateRoom() { showScreen('createRoomScreen'); }
+function showJoinRoom()   { showScreen('joinRoomScreen'); }
+function backToMenu()     { showScreen('menuScreen'); }
+
+// ============================================================
+// ROOM MANAGEMENT
+// ============================================================
+function copyRoomId() {
+    navigator.clipboard.writeText(document.getElementById('displayRoomId').textContent).then(() => {
+        const btn = event.target, orig = btn.textContent;
+        btn.textContent = '✓ Copied!';
+        setTimeout(() => { btn.textContent = orig; }, 2000);
+    });
+}
+async function createRoom() {
+    const hp = document.getElementById('hostPassword').value.trim();
+    const np = document.getElementById('numPlayers').value;
+    const hn = document.getElementById('hostName').value.trim();
+    if (!hn || hn.length < 2)           { alert('Enter your name (min 2 chars)'); return; }
+    if (!hp || !/^\d{4}$/.test(hp))     { alert('PIN must be exactly 4 digits'); return; }
+    try {
+        const r = await fetch('/api/create-room', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ hostPassword: hp, numPlayers: np }) });
+        const d = await r.json();
+        if (d.error) { alert('Error: ' + d.error); return; }
+        gs.roomId = d.roomId; gs.playerName = hn;
+        socket.emit('join-room', { roomId: d.roomId, playerName: hn, hostPassword: hp });
+    } catch(e) { alert('Error: ' + e.message); }
+}
+function joinRoom() {
+    const rid = document.getElementById('roomIdInput').value.toUpperCase().trim();
+    const pn  = document.getElementById('playerName').value.trim();
+    if (!rid || rid.length !== 6) { alert('Enter a valid 6-character room code'); return; }
+    if (!pn || pn.length < 2)    { alert('Enter your name (min 2 chars)'); return; }
+    gs.roomId = rid; gs.playerName = pn;
+    socket.emit('join-room', { roomId: rid, playerName: pn });
+}
+function readyUp() {
+    socket.emit('player-ready');
+    document.getElementById('readyButton').disabled = true;
+    document.getElementById('readyButton').textContent = '⏳ Waiting…';
+}
+function leaveRoom() {
+    if (!confirm('Leave room?')) return;
+    socket.disconnect(); socket.connect();
+    gs = { roomId:null, playerName:null, isHost:false, playerIndex:-1, players:[], hand:[], trumpSuit:null, currentPlayerIndex:-1, currentTrick:[], trickHistory:[], turnTimer:null, bidTimer:null, isProcessing:false };
+    showScreen('menuScreen');
+}
+
+// ============================================================
+// BIDDING
+// ============================================================
+function submitBid() {
+    const b = parseInt(document.getElementById('bidAmount').value);
+    if (isNaN(b) || b < 0 || b > 13) { alert('Bid 0–13!'); return; }
+    socket.emit('submit-bid', { bid: b });
+    document.getElementById('biddingPhase').classList.add('hidden');
+    showMessage('Bid submitted! Waiting for others…','info');
+}
+
+// ============================================================
+// CARD PLAYABILITY  ← same 5-priority rule as offline
+// ============================================================
+function getHighestInTrick() {
+    const leadCards = gs.currentTrick.filter(tc => tc.card.suit === gs.leadSuit);
+    if (leadCards.length === 0) return -1;
+    return Math.max(...leadCards.map(tc => tc.card.value));
+}
+// leadSuit is set by the server – we receive it via 'next-turn' / 'next-trick'
+// For local validation we store it when we see the first card-played event.
+function isCardPlayable(card) {
+    // Leading
+    if (gs.currentTrick.length === 0) return true;
+
+    const leadSuit  = gs.leadSuit;
+    const trumpSuit = gs.trumpSuit;
+    const myLeadCards  = gs.hand.filter(c => c.suit === leadSuit);
+    const myTrumpCards = gs.hand.filter(c => c.suit === trumpSuit);
+
+    if (myLeadCards.length > 0) {
+        if (card.suit !== leadSuit) return false;
+        const highestPlayed = getHighestInTrick();
+        const hasHigher     = myLeadCards.some(c => c.value > highestPlayed);
+        if (hasHigher) return card.value > highestPlayed;   // Rule 2
+        return true;                                         // Rule 3
+    }
+    if (myTrumpCards.length > 0) return card.suit === trumpSuit;  // Rule 4
+    return true;                                                   // Rule 5
+}
+
+// ============================================================
+// PLAY CARD
+// ============================================================
+function playCard(card) {
+    if (gs.isProcessing) return;                              // already locked
+    if (gs.currentPlayerIndex !== gs.playerIndex) {
+        showMessage("Not your turn!", 'error');
+        setTimeout(() => hideMessage(), 2000);
+        return;
+    }
+    if (!isCardPlayable(card)) {
+        showMessage("You can't play that card!", 'error');
+        setTimeout(() => hideMessage(), 2000);
+        return;
+    }
+
+    // LOCK immediately
+    gs.isProcessing = true;
+    renderPlayerHand();   // everything disabled
+
+    socket.emit('play-card', { card });
+}
+
+// ============================================================
+// RENDERING
+// ============================================================
+function updateTurnIndicator(customMsg) {
+    const el  = document.getElementById('turnIndicator');
+    const msg = document.getElementById('turnMessage');
+    if (customMsg) {
+        msg.textContent = customMsg;
+        el.className = 'turn-indicator winner-state';
+    } else if (gs.currentPlayerIndex >= 0 && gs.players[gs.currentPlayerIndex]) {
+        const isMe = gs.currentPlayerIndex === gs.playerIndex;
+        msg.textContent = isMe ? '🎯 YOUR TURN!' : '⏳ ' + gs.players[gs.currentPlayerIndex].name + '\'s turn';
+        el.className    = isMe ? 'turn-indicator active' : 'turn-indicator';
+    } else {
+        msg.textContent = 'Waiting…';
+        el.className = 'turn-indicator';
+    }
+}
+
+function renderPlayerHand() {
+    const el = document.getElementById('playerHand');
+    el.innerHTML = '';
+    if (!gs.hand || gs.hand.length === 0) {
+        el.innerHTML = '<p style="text-align:center;opacity:.5;width:100%;">No cards</p>';
+        return;
+    }
+    const sorted = [...gs.hand].sort((a,b) => {
+        const so = Object.keys(suits);
+        if (a.suit !== b.suit) return so.indexOf(a.suit) - so.indexOf(b.suit);
+        return b.value - a.value;
+    });
+    const isMyTurn = gs.currentPlayerIndex === gs.playerIndex;
+
+    sorted.forEach(card => {
+        const ce = createCardElement(card);
+        if (card.suit === gs.trumpSuit) ce.classList.add('power-set');
+
+        if (isMyTurn && !gs.isProcessing && isCardPlayable(card)) {
+            ce.onclick = () => playCard(card);
+        } else {
+            ce.classList.add('disabled');
+        }
+        el.appendChild(ce);
+    });
+}
+
+function createCardElement(c) {
+    const d = document.createElement('div');
+    d.className = 'card ' + suits[c.suit].color;
+    d.innerHTML = '<div>'+c.rank+'</div><div class="card-suit">'+suits[c.suit].symbol+'</div>';
+    return d;
+}
+
+function renderTrickArea(trick) {
+    const ta = document.getElementById('trickArea');
+    ta.innerHTML = '';
+    if (!trick || trick.length === 0) { ta.innerHTML = '<p style="text-align:center;opacity:.5;width:100%;">Waiting…</p>'; return; }
+    trick.forEach(({ playerIndex, card }) => {
+        const w  = document.createElement('div');  w.className = 'trick-card-wrapper';
+        const ce = createCardElement(card);
+        const lb = document.createElement('div');  lb.className = 'trick-card-label';
+        lb.textContent = gs.players[playerIndex]?.name || 'P'+(playerIndex+1);
+        w.appendChild(ce); w.appendChild(lb); ta.appendChild(w);
+    });
+}
+
+function renderPlayersArea() {
+    const pa = document.getElementById('playersArea');
+    pa.innerHTML = '';
+    gs.players.forEach((p,i) => {
+        const pc = document.createElement('div');
+        pc.className = 'player-card' + (i===gs.currentPlayerIndex?' active':'') + (i===gs.playerIndex?' you':'');
+        pc.innerHTML = `<div class="player-name">${p.name} ${i===gs.playerIndex?'(You)':''}</div>
+            <div class="player-stats">
+                <div class="stat"><span class="stat-label">Bid:</span> ${p.bid!=null?p.bid:'-'}</div>
+                <div class="stat"><span class="stat-label">Won:</span> ${p.tricksWon||0}</div>
+                <div class="stat"><span class="stat-label">Score:</span> ${p.totalScore||0}</div>
+                <div class="stat"><span class="stat-label">Cards:</span> ${p.cardsLeft!=null?p.cardsLeft:13}</div>
+            </div>`;
+        pa.appendChild(pc);
+    });
+}
+
+function renderHistory() {
+    const hc = document.getElementById('historyContent');
+    if (!gs.trickHistory || gs.trickHistory.length === 0) { hc.innerHTML = '<p style="text-align:center;opacity:.5;">No tricks yet</p>'; return; }
+    hc.innerHTML = '';
+    [...gs.trickHistory].reverse().forEach((t, ri) => {
+        const ai = gs.trickHistory.length - 1 - ri;
+        const hi = document.createElement('div');
+        hi.className = 'history-item' + (ri===0?' latest':'');
+        const wn = gs.players[t.winnerIndex]?.name || 'P'+(t.winnerIndex+1);
+        let ch = '<div class="history-cards">';
+        t.cards.forEach(({ playerIndex, card }) => {
+            ch += `<div class="history-card ${playerIndex===t.winnerIndex?'winner-card':''}">
+                <span style="opacity:.7;">${gs.players[playerIndex]?.name||'P'+(playerIndex+1)}:</span>
+                <span class="history-card-value" style="color:var(--${suits[card.suit].color});">${card.rank}${suits[card.suit].symbol}</span>
+            </div>`;
+        });
+        ch += '</div>';
+        hi.innerHTML = `<div class="history-trick-number">Trick ${ai+1}</div><div class="history-winner">🏆 ${wn}</div>${ch}`;
+        hc.appendChild(hi);
+    });
+    document.getElementById('historyPanel').scrollTop = 0;
+}
+
+function updatePlayersList(ps) {
+    const lc = document.getElementById('playersListContainer');
+    lc.innerHTML = '';
+    ps.forEach(p => {
+        const pi = document.createElement('div');
+        pi.className = 'player-item' + (p.isReady?' ready':'');
+        pi.innerHTML = `<span>${p.name}</span><span class="status-badge ${p.isReady?'status-ready':'status-waiting'}">${p.isReady?'✓ Ready':'⏳ Waiting'}</span>`;
+        lc.appendChild(pi);
+    });
+}
+
+// ============================================================
+// MESSAGES & TIMERS
+// ============================================================
+function showMessage(txt, type='info') {
+    const mb = document.getElementById('messageBox');
+    mb.textContent = txt; mb.classList.remove('hidden');
+    mb.style.borderColor = type==='error'?'var(--accent-red)': type==='success'?'#4caf50':'var(--accent-gold)';
+}
+function hideMessage() { document.getElementById('messageBox').classList.add('hidden'); }
+function startTurnTimer(sec=30) {
+    clearInterval(gs.turnTimer);
+    document.getElementById('turnTimerDisplay').classList.remove('hidden');
+    document.getElementById('turnTimer').textContent = sec;
+    gs.turnTimer = setInterval(() => { sec--; document.getElementById('turnTimer').textContent = sec; if (sec<=0) clearInterval(gs.turnTimer); }, 1000);
+}
+function stopTurnTimer() { clearInterval(gs.turnTimer); document.getElementById('turnTimerDisplay').classList.add('hidden'); }
+
+// ============================================================
+// SOCKET EVENTS
+// ============================================================
+socket.on('joined-room', d => {
+    gs.isHost = d.isHost; gs.roomId = d.roomId;
+    gs.playerIndex = d.players.findIndex(p => p.name === gs.playerName);
+    gs.players = d.players;
+    document.getElementById('displayRoomId').textContent  = d.roomId;
+    document.getElementById('playerCount').textContent    = d.players.length;
+    document.getElementById('maxPlayers').textContent     = d.maxPlayers;
+    updatePlayersList(d.players);
+    showScreen('waitingRoomScreen');
+});
+
+socket.on('player-joined', d => {
+    gs.players = d.players;
+    document.getElementById('playerCount').textContent = d.players.length;
+    updatePlayersList(d.players);
+});
+
+socket.on('player-ready-update', d => { gs.players = d.players; updatePlayersList(d.players); });
+
+socket.on('round-started', d => {
+    gs.hand = d.hand; gs.trumpSuit = d.trumpSuit;
+    gs.playerIndex = d.playerIndex;
+    gs.currentTrick = []; gs.trickHistory = [];
+    gs.leadSuit = null; gs.isProcessing = false;
+
+    document.getElementById('roundNumber').textContent = d.roundNumber;
+    document.getElementById('trumpDisplay').textContent = suits[d.trumpSuit].symbol;
+    document.getElementById('trickNumber').textContent  = '1/13';
+    showScreen('gameScreen');
+    renderPlayerHand(); renderPlayersArea(); renderHistory(); updateTurnIndicator();
+
+    document.getElementById('biddingPhase').classList.remove('hidden');
+    let tl = 60; clearInterval(gs.bidTimer);
+    gs.bidTimer = setInterval(() => { tl--; document.getElementById('biddingTimer').textContent = tl; if (tl<=0) clearInterval(gs.bidTimer); }, 1000);
+});
+
+socket.on('bidding-complete', d => {
+    clearInterval(gs.bidTimer);
+    document.getElementById('biddingPhase').classList.add('hidden');
+    if (d.bids) d.bids.forEach((bd,i) => { if (gs.players[i]) gs.players[i].bid = bd.bid; });
+    renderPlayersArea(); hideMessage();
+    showMessage(`Bids in! ${d.startingPlayer} starts!`,'success');
+    setTimeout(() => hideMessage(), 2000);
+});
+
+socket.on('next-turn', d => {
+    gs.currentPlayerIndex = d.currentPlayerIndex;
+    gs.isProcessing = false;
+    // Store leadSuit sent from server (null if start of trick)
+    if (d.leadSuit !== undefined) gs.leadSuit = d.leadSuit;
+    renderPlayersArea(); updateTurnIndicator();
+
+    if (d.currentPlayerIndex === gs.playerIndex) {
+        showMessage('🎯 Your turn!','info');
+        startTurnTimer(30);
+        renderPlayerHand();
+    } else {
+        showMessage(`⏳ ${d.currentPlayerName}'s turn`,'info');
+        stopTurnTimer();
+        renderPlayerHand();
+    }
+});
+
+socket.on('card-played', d => {
+    // track leadSuit locally
+    if (gs.currentTrick.length === 0) gs.leadSuit = d.card.suit;
+
+    if (d.playerIndex === gs.playerIndex) {
+        gs.hand = gs.hand.filter(c => !(c.suit===d.card.suit && c.rank===d.card.rank));
+    }
+    if (gs.players[d.playerIndex]) gs.players[d.playerIndex].cardsLeft = (gs.players[d.playerIndex].cardsLeft||13)-1;
+
+    gs.currentTrick = d.currentTrick;
+    renderTrickArea(d.currentTrick);
+    renderPlayersArea();
+    renderPlayerHand();   // re-check playability after new card played
+
+    if (d.autoPlayed) showMessage(`⏱️ ${d.playerName} auto-played`,'info');
+    else              hideMessage();
+});
+
+socket.on('trick-complete', d => {
+    stopTurnTimer();
+    if (gs.players[d.winnerIndex]) gs.players[d.winnerIndex].tricksWon = (gs.players[d.winnerIndex].tricksWon||0)+1;
+    gs.trickHistory = d.trickHistory;
+    renderPlayersArea(); renderHistory();
+    updateTurnIndicator(`🏆 ${d.winnerName} wins the trick!`);
+});
+
+socket.on('next-trick', d => {
+    document.getElementById('trickNumber').textContent = d.trickNumber+'/13';
+    gs.currentPlayerIndex = d.currentPlayerIndex;
+    gs.currentTrick = []; gs.leadSuit = null; gs.isProcessing = false;
+    renderTrickArea([]); renderPlayersArea(); hideMessage(); updateTurnIndicator();
+
+    if (d.currentPlayerIndex === gs.playerIndex) {
+        showMessage('🎯 Your turn!','info');
+        startTurnTimer(30);
+        renderPlayerHand();
+    } else {
+        showMessage(`⏳ ${d.currentPlayerName}'s turn`,'info');
+        stopTurnTimer();
+        renderPlayerHand();
+    }
+});
+
+socket.on('round-complete', d => {
+    stopTurnTimer(); clearInterval(gs.bidTimer);
+    const sd = document.getElementById('scoresDisplay');
+    sd.classList.remove('hidden');
+    let h = '<h3>📊 Round Results</h3>';
+    [...d.scores].sort((a,b) => b.totalScore - a.totalScore).forEach((p,i) => {
+        const iw = i===0, sc = p.score>0?'positive':'negative';
+        h += `<div class="score-item ${iw?'winner':''}"><div class="score-name">${p.name} ${iw?'🏆':''}</div>
+            <div class="score-details">Bid: ${p.bid} | Won: ${p.won} | Round: <span class="${sc}">${p.score>0?'+':''}${p.score}</span> | Total: <strong>${p.totalScore}</strong></div></div>`;
+    });
+    h += '<button onclick="leaveRoom()" style="margin-top:1.5rem;">Leave</button>';
+    sd.innerHTML = h;
+    d.scores.forEach((s,i) => { if (gs.players[i]) gs.players[i].totalScore = s.totalScore; });
+});
+
+socket.on('player-left', d => {
+    gs.players = d.players;
+    showMessage(`⚠️ ${d.playerName} left`,'error');
+    if (document.getElementById('waitingRoomScreen').classList.contains('active')) {
+        document.getElementById('playerCount').textContent = d.players.length;
+        updatePlayersList(d.players);
+    }
+});
+
+socket.on('error', d => {
+    alert('Error: '+d.message);
+    if (!document.getElementById('gameScreen').classList.contains('active')) backToMenu();
+});
+</script>
+</body>
+</html>

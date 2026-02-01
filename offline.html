@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Power Suit - Offline Mode</title>
+    <link href="https://fonts.googleapis.com/css2?family=Righteous&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css">
+    <style>
+        /* ===== TURN INDICATOR BAR ===== */
+        .turn-indicator {
+            background: rgba(26, 31, 58, 0.92);
+            border: 2px solid rgba(255,255,255,0.12);
+            border-radius: 14px;
+            padding: 0.9rem 1.4rem;
+            text-align: center;
+            margin: 1rem 0;
+            transition: all 0.3s ease;
+        }
+        .turn-indicator.active {
+            border-color: var(--accent-gold);
+            background: rgba(255,215,0,0.08);
+            box-shadow: 0 0 18px rgba(255,215,0,0.25);
+        }
+        .turn-indicator.winner-state {
+            border-color: #4caf50;
+            background: rgba(76,175,80,0.1);
+        }
+        .turn-message {
+            font-family: 'Righteous', cursive;
+            font-size: 1.2rem;
+            color: var(--accent-gold);
+            letter-spacing: 0.05em;
+        }
+        .turn-indicator.active .turn-message {
+            animation: pulse-text 1.5s ease-in-out infinite;
+        }
+        @keyframes pulse-text {
+            0%,100% { opacity:1; }
+            50%      { opacity:0.7; }
+        }
+    </style>
+</head>
+<body>
+<div id="app">
+  <div class="container">
+    <header>
+      <h1>⚡ POWER SUIT ⚡</h1>
+      <p class="subtitle">Offline Mode – Play vs AI</p>
+    </header>
+
+    <!-- ===== SETUP SCREEN ===== -->
+    <div class="screen active" id="setupScreen">
+      <div class="setup-screen">
+        <h2>🎮 Game Setup</h2>
+        <div class="form-group">
+          <label>Your Name</label>
+          <input type="text" id="playerName" placeholder="Enter your name" maxlength="15" value="Player">
+        </div>
+        <div class="form-group">
+          <label>Number of Players</label>
+          <select id="numPlayers">
+            <option value="3">3 Players (You + 2 AI)</option>
+            <option value="4">4 Players (You + 3 AI)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>AI Difficulty</label>
+          <select id="aiDifficulty">
+            <option value="easy">Easy – Random Play</option>
+            <option value="medium" selected>Medium – Smart Play</option>
+            <option value="hard">Hard – Strategic Play</option>
+          </select>
+        </div>
+        <button onclick="startGame()">🚀 START GAME</button>
+        <button onclick="window.location.href='/'" class="btn-secondary" style="margin-top:1rem;">← Back to Menu</button>
+      </div>
+    </div>
+
+    <!-- ===== GAME BOARD ===== -->
+    <div class="screen" id="gameBoard">
+      <!-- Game Info bar -->
+      <div class="game-info">
+        <div class="info-item"><span class="info-label">Round:</span><span id="roundNumber">1</span></div>
+        <div class="info-item"><span class="info-label">Power Set:</span><span class="trump-display" id="trumpDisplay">♠</span></div>
+        <div class="info-item"><span class="info-label">Trick:</span><span id="trickNumber">1/13</span></div>
+      </div>
+
+      <!-- Player stat cards -->
+      <div class="players-area" id="playersArea"></div>
+
+      <!-- Bidding overlay -->
+      <div class="bidding-phase hidden" id="biddingPhase">
+        <h3>🎯 Bidding Phase</h3>
+        <p>How many tricks will you win?</p>
+        <div class="timer" id="biddingTimer">60</div>
+        <div class="bid-input">
+          <input type="number" id="bidAmount" min="0" max="13" value="5">
+          <button onclick="submitBid()">Submit Bid</button>
+        </div>
+        <p style="font-size:0.85rem;opacity:0.7;margin-top:1rem;">Safe Zone: Bid X → Win X to (2X-1) tricks</p>
+      </div>
+
+      <!-- 1) PLAYING AREA – where cards land -->
+      <div class="playing-area">
+        <div class="trick-area" id="trickArea">
+          <p style="text-align:center;opacity:0.5;width:100%;">Waiting for cards…</p>
+        </div>
+      </div>
+
+      <!-- 2) TURN INDICATOR BAR -->
+      <div class="turn-indicator" id="turnIndicator">
+        <div class="turn-message" id="turnMessage">Waiting…</div>
+      </div>
+
+      <!-- 3) YOUR HAND -->
+      <div class="player-hand">
+        <h3>🃏 Your Hand</h3>
+        <div class="hand-cards" id="playerHand"></div>
+      </div>
+
+      <!-- 4) TRICK HISTORY -->
+      <div class="history-panel" id="historyPanel">
+        <h4>📜 Trick History</h4>
+        <div id="historyContent">
+          <p style="text-align:center;opacity:0.5;">No tricks played yet</p>
+        </div>
+      </div>
+
+      <!-- Message / Scores -->
+      <div class="message-box hidden" id="messageBox"></div>
+      <div class="scores-display hidden" id="scoresDisplay"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// STATE
+// ============================================================
+let gameState = {
+    numPlayers: 3,
+    aiDifficulty: 'medium',
+    players: [],
+    currentPlayerIndex: 0,
+    trumpSuit: null,
+    deck: [],
+    currentTrick: [],
+    trickNumber: 1,
+    roundNumber: 1,
+    phase: 'setup',          // setup | bidding | playing | scoring
+    biddingTimer: null,
+    leadSuit: null,
+    trickHistory: [],
+    isProcessing: false      // ← LOCK flag – blocks hand while a card is being processed
+};
+
+const suits = {
+    spade:   { symbol:'♠', name:'Spades',   color:'spade' },
+    heart:   { symbol:'♥', name:'Hearts',   color:'heart' },
+    club:    { symbol:'♣', name:'Clubs',    color:'club'  },
+    diamond: { symbol:'♦', name:'Diamonds', color:'diamond' }
+};
+const ranks      = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
+const rankValues = {2:2,3:3,4:4,5:5,6:6,7:7,8:8,9:9,10:10,J:11,Q:12,K:13,A:14};
+
+// ============================================================
+// SETUP
+// ============================================================
+function startGame() {
+    const numPlayers  = parseInt(document.getElementById('numPlayers').value);
+    const playerName  = document.getElementById('playerName').value.trim() || 'Player';
+    const aiDifficulty= document.getElementById('aiDifficulty').value;
+
+    gameState.numPlayers   = numPlayers;
+    gameState.aiDifficulty = aiDifficulty;
+    gameState.players      = [];
+    gameState.isProcessing = false;
+
+    gameState.players.push({ name:playerName, isHuman:true,  hand:[], bid:null, tricksWon:0, score:0, totalScore:0 });
+    ['Alice Bot','Bob Bot','Charlie Bot'].slice(0, numPlayers-1).forEach(n => {
+        gameState.players.push({ name:n, isHuman:false, hand:[], bid:null, tricksWon:0, score:0, totalScore:0 });
+    });
+
+    document.getElementById('setupScreen').classList.remove('active');
+    document.getElementById('gameBoard').classList.add('active');
+    startNewRound();
+}
+
+// ============================================================
+// DECK
+// ============================================================
+function createDeck() {
+    const suitKeys  = Object.keys(suits);
+    const suitsUsed = gameState.numPlayers === 3 ? suitKeys.slice(0,3) : suitKeys;
+    let deck = [];
+    suitsUsed.forEach(s => ranks.forEach(r => deck.push({ suit:s, rank:r, value:rankValues[r] })));
+    // Fisher-Yates shuffle
+    for (let i = deck.length-1; i > 0; i--) {
+        const j = Math.floor(Math.random()*(i+1));
+        [deck[i], deck[j]] = [deck[j], deck[i]];
+    }
+    return deck;
+}
+
+function dealCards() {
+    let idx = 0;
+    gameState.players.forEach(p => {
+        p.hand       = gameState.deck.slice(idx, idx+13);
+        p.bid        = null;   // null = has NOT bid yet
+        p.tricksWon  = 0;
+        p.score      = 0;
+        idx += 13;
+    });
+}
+
+function checkValidDeal() {
+    const numAces = gameState.numPlayers === 3 ? 3 : 4;
+    for (const p of gameState.players) {
+        if (p.hand.filter(c => c.rank === 'A').length === numAces) return false;
+        if (p.hand.filter(c => c.suit === gameState.trumpSuit).length === 0) return false;
+    }
+    return true;
+}
+
+// ============================================================
+// ROUND
+// ============================================================
+function startNewRound() {
+    let valid = false, attempts = 0;
+    while (!valid && attempts < 100) {
+        gameState.deck = createDeck();
+        dealCards();
+        const suitKeys  = Object.keys(suits);
+        const suitsUsed = gameState.numPlayers === 3 ? suitKeys.slice(0,3) : suitKeys;
+        gameState.trumpSuit = suitsUsed[Math.floor(Math.random()*suitsUsed.length)];
+        valid = checkValidDeal();
+        attempts++;
+    }
+    gameState.trickNumber  = 1;
+    gameState.currentTrick = [];
+    gameState.leadSuit     = null;
+    gameState.trickHistory = [];
+    gameState.isProcessing = false;
+
+    updateGameInfo();
+    renderPlayers();
+    renderPlayerHand();
+    renderTrickHistory();
+    updateTurnIndicator();
+    startBiddingPhase();
+}
+
+// ============================================================
+// BIDDING
+// ============================================================
+function startBiddingPhase() {
+    gameState.phase = 'bidding';
+    document.getElementById('biddingPhase').classList.remove('hidden');
+    gameState.players.forEach(p => p.bid = null);
+
+    let timeLeft = 60;
+    const timerEl = document.getElementById('biddingTimer');
+    gameState.biddingTimer = setInterval(() => {
+        timeLeft--;
+        timerEl.textContent = timeLeft;
+        if (timeLeft <= 0) {
+            clearInterval(gameState.biddingTimer);
+            if (gameState.players[0].bid === null) gameState.players[0].bid = Math.floor(Math.random()*7)+1;
+            finishBidding();
+        }
+    }, 1000);
+}
+
+function submitBid() {
+    const val = parseInt(document.getElementById('bidAmount').value);
+    if (isNaN(val) || val < 0 || val > 13) { showMessage('Bid must be 0–13!','error'); return; }
+    gameState.players[0].bid = val;
+    clearInterval(gameState.biddingTimer);
+    // AI bids
+    for (let i = 1; i < gameState.players.length; i++)
+        gameState.players[i].bid = calculateAIBid(gameState.players[i]);
+    finishBidding();
+}
+
+function calculateAIBid(player) {
+    let bid = 0;
+    bid += player.hand.filter(c => c.value >= 12).length;                          // Q K A
+    const trumps     = player.hand.filter(c => c.suit === gameState.trumpSuit);
+    const highTrumps = trumps.filter(c => c.value >= 10);
+    bid += Math.floor(trumps.length / 2) + highTrumps.length;
+    bid += player.hand.filter(c => c.rank === 'A').length;
+
+    if      (gameState.aiDifficulty === 'easy')   bid += Math.floor(Math.random()*5)-2;
+    else if (gameState.aiDifficulty === 'medium') bid += Math.floor(Math.random()*3)-1;
+    else                                           bid  = Math.floor(bid*0.9);
+
+    return Math.max(1, Math.min(13, bid));
+}
+
+function finishBidding() {
+    document.getElementById('biddingPhase').classList.add('hidden');
+    renderPlayers();
+    showMessage('Bidding complete! Game begins!','info');
+    setTimeout(() => startPlayingPhase(), 2000);
+}
+
+// ============================================================
+// PLAYING
+// ============================================================
+function startPlayingPhase() {
+    gameState.phase            = 'playing';
+    gameState.currentTrick     = [];
+    gameState.leadSuit         = null;
+    gameState.isProcessing     = false;
+    gameState.currentPlayerIndex = Math.floor(Math.random()*gameState.numPlayers);
+
+    hideMessage();
+    renderPlayers();
+    updateTurnIndicator();
+
+    const starter = gameState.players[gameState.currentPlayerIndex];
+    showMessage(`${starter.name} starts the round!`,'info');
+    setTimeout(() => {
+        hideMessage();
+        updateTurnIndicator();
+        if (starter.isHuman) { renderPlayerHand(); }
+        else                 { aiPlayCard(); }
+    }, 2000);
+}
+
+// ============================================================
+// CARD VALIDATION  ← 5-level priority exactly as described
+//   1. Have led suit + have higher card  →  only higher cards open
+//   2. Have led suit + NO higher card    →  all led-suit cards open
+//   3. No led suit  + have trump         →  only trump cards open
+//   4. No led suit  + no trump           →  every card open
+//   Leading (first card in trick)        →  every card open
+// ============================================================
+function isCardPlayable(card, player) {
+    // Leading – anything goes
+    if (gameState.currentTrick.length === 0) return true;
+
+    const leadSuit  = gameState.leadSuit;
+    const trumpSuit = gameState.trumpSuit;
+
+    const leadCards  = player.hand.filter(c => c.suit === leadSuit);
+    const trumpCards = player.hand.filter(c => c.suit === trumpSuit);
+
+    // --- Player HAS the led suit ---
+    if (leadCards.length > 0) {
+        // Card must be of lead suit
+        if (card.suit !== leadSuit) return false;
+
+        // Find the highest card currently on the table (of any suit that matters for "beating")
+        // We only care about the highest lead-suit card played so far for the "must play higher" rule
+        const playedLeadValues = gameState.currentTrick
+            .filter(tc => tc.card.suit === leadSuit)
+            .map(tc => tc.card.value);
+
+        // If nobody has played the lead suit yet (shouldn't happen since first card sets lead, but safe)
+        if (playedLeadValues.length === 0) return true;
+
+        const highestOnTable = Math.max(...playedLeadValues);
+        const hasHigher      = leadCards.some(c => c.value > highestOnTable);
+
+        if (hasHigher) {
+            // Must play one of the higher cards – lower ones locked
+            return card.value > highestOnTable;
+        }
+        // No higher card exists → all lead-suit cards are open
+        return true;
+    }
+
+    // --- Player does NOT have the led suit ---
+    if (trumpCards.length > 0) {
+        // Must play trump
+        return card.suit === trumpSuit;
+    }
+
+    // --- Neither led suit nor trump → any card is fine ---
+    return true;
+}
+
+function getPlayableCards(player) {
+    return player.hand.filter(c => isCardPlayable(c, player));
+}
+
+// ============================================================
+// HUMAN PLAY
+// ============================================================
+function playCard(card) {
+    try {
+        if (gameState.isProcessing) return;                              // already locked
+        if (gameState.currentPlayerIndex !== 0) return;
+        if (gameState.phase !== 'playing') return;
+
+        const player = gameState.players[0];
+        if (!isCardPlayable(card, player)) {
+            showMessage('You cannot play that card!','error');
+            setTimeout(() => hideMessage(), 2000);
+            return;
+        }
+
+        // ── LOCK the hand instantly ──
+        gameState.isProcessing = true;
+        renderPlayerHand();   // all cards become disabled
+
+        // Remove from hand
+        player.hand = player.hand.filter(c => !(c.suit===card.suit && c.rank===card.rank));
+
+        if (gameState.currentTrick.length === 0) gameState.leadSuit = card.suit;
+        gameState.currentTrick.push({ playerIndex:0, card });
+
+        renderTrick();
+        renderPlayerHand();
+        updatePlayerStats();
+
+        gameState.currentPlayerIndex = (gameState.currentPlayerIndex+1) % gameState.numPlayers;
+        renderPlayers();
+        updateTurnIndicator();
+
+        if (gameState.currentTrick.length < gameState.numPlayers) {
+            setTimeout(() => {
+                const next = gameState.players[gameState.currentPlayerIndex];
+                updateTurnIndicator();
+                if (next.isHuman) { gameState.isProcessing = false; renderPlayerHand(); }
+                else              { aiPlayCard(); }
+            }, 1000);
+        } else {
+            setTimeout(() => evaluateTrick(), 2000);
+        }
+    } catch(e) {
+        console.error('playCard error', e);
+        gameState.isProcessing = false;
+        showMessage('An error occurred.','error');
+    }
+}
+
+// ============================================================
+// AI PLAY  (2-second delay before each AI card)
+// ============================================================
+function aiPlayCard() {
+    try {
+        const idx    = gameState.currentPlayerIndex;
+        const player = gameState.players[idx];
+        if (!player || player.isHuman || !player.hand.length) { console.error('bad AI state'); return; }
+
+        setTimeout(() => {                          // ← 2-second visible delay
+            let playable = getPlayableCards(player);
+            if (!playable.length) playable = [player.hand[0]]; // safety
+
+            let chosen;
+            if      (gameState.aiDifficulty === 'easy')   chosen = selectEasy(playable);
+            else if (gameState.aiDifficulty === 'medium') chosen = selectMedium(player, playable);
+            else                                           chosen = selectHard(player, playable);
+
+            player.hand = player.hand.filter(c => !(c.suit===chosen.suit && c.rank===chosen.rank));
+            if (gameState.currentTrick.length === 0) gameState.leadSuit = chosen.suit;
+            gameState.currentTrick.push({ playerIndex:idx, card:chosen });
+
+            renderTrick();
+            updatePlayerStats();
+
+            gameState.currentPlayerIndex = (gameState.currentPlayerIndex+1) % gameState.numPlayers;
+            renderPlayers();
+            updateTurnIndicator();
+
+            if (gameState.currentTrick.length < gameState.numPlayers) {
+                setTimeout(() => {
+                    const next = gameState.players[gameState.currentPlayerIndex];
+                    updateTurnIndicator();
+                    if (next.isHuman) { gameState.isProcessing = false; renderPlayerHand(); }
+                    else              { aiPlayCard(); }
+                }, 1000);
+            } else {
+                setTimeout(() => evaluateTrick(), 2000);
+            }
+        }, 2000);                                   // ← 2-second delay
+    } catch(e) {
+        console.error('aiPlayCard error', e);
+        showMessage('AI error – reloading…','error');
+        setTimeout(() => location.reload(), 3000);
+    }
+}
+
+// ---- Easy: random ----
+function selectEasy(playable) {
+    return playable[Math.floor(Math.random()*playable.length)];
+}
+
+// ---- Medium: try to win if needed, else dump low ----
+function selectMedium(player, playable) {
+    const needed = player.bid - player.tricksWon;
+    if (gameState.currentTrick.length === 0) {
+        // Leading
+        const nonTrump = playable.filter(c => c.suit !== gameState.trumpSuit);
+        if (nonTrump.length) { nonTrump.sort((a,b)=>a.value-b.value); return nonTrump[Math.floor(nonTrump.length/2)]; }
+        return playable[0];
+    }
+    if (needed > 0) { playable.sort((a,b)=>b.value-a.value); return playable[0]; }
+    playable.sort((a,b)=>a.value-b.value);
+    return playable[0];
+}
+
+// ---- Hard: smart – win with lowest winner, dump lowest loser ----
+function selectHard(player, playable) {
+    const needed = player.bid - player.tricksWon;
+
+    if (gameState.currentTrick.length === 0) {
+        // Leading
+        if (needed > 0) {
+            const high = playable.filter(c => c.value >= 11 && c.suit !== gameState.trumpSuit);
+            if (high.length) { high.sort((a,b)=>b.value-a.value); return high[0]; }
+            playable.sort((a,b)=>b.value-a.value);
+            return playable[0];
+        }
+        // Don't need wins – lead lowest non-trump
+        const nonTrump = playable.filter(c => c.suit !== gameState.trumpSuit);
+        if (nonTrump.length) { nonTrump.sort((a,b)=>a.value-b.value); return nonTrump[0]; }
+        playable.sort((a,b)=>a.value-b.value);
+        return playable[0];
+    }
+
+    // Following – figure out current winner
+    const winner = getCurrentTrickWinner();
+    const trumpSuit = gameState.trumpSuit;
+    const leadSuit  = gameState.leadSuit;
+
+    // Which of my playable cards actually beat the current winner?
+    const winningCards = playable.filter(c => {
+        if (winner.card.suit === trumpSuit) {
+            // current winner is trump – only higher trump beats it
+            return c.suit === trumpSuit && c.value > winner.card.value;
+        }
+        // current winner is lead suit – trump OR higher lead suit beats it
+        if (c.suit === trumpSuit) return true;
+        if (c.suit === leadSuit && c.value > winner.card.value) return true;
+        return false;
+    });
+
+    if (needed > 0 && winningCards.length > 0) {
+        // Win with the LOWEST winning card (save big cards)
+        winningCards.sort((a,b)=>a.value-b.value);
+        return winningCards[0];
+    }
+    // Can't win or don't need to – play LOWEST card (don't waste Q/K)
+    playable.sort((a,b)=>a.value-b.value);
+    return playable[0];
+}
+
+function getCurrentTrickWinner() {
+    const trumpSuit = gameState.trumpSuit;
+    const leadSuit  = gameState.leadSuit;
+    let winner = gameState.currentTrick[0];
+    for (let i=1; i<gameState.currentTrick.length; i++) {
+        const cur = gameState.currentTrick[i];
+        if (cur.card.suit === trumpSuit && winner.card.suit !== trumpSuit) { winner = cur; }
+        else if (cur.card.suit === trumpSuit && winner.card.suit === trumpSuit && cur.card.value > winner.card.value) { winner = cur; }
+        else if (cur.card.suit === leadSuit && winner.card.suit === leadSuit && cur.card.value > winner.card.value) { winner = cur; }
+    }
+    return winner;
+}
+
+// ============================================================
+// TRICK EVALUATION
+// ============================================================
+function evaluateTrick() {
+    try {
+        const winner      = getCurrentTrickWinner();
+        const winnerIdx   = winner.playerIndex;
+        gameState.players[winnerIdx].tricksWon++;
+
+        gameState.trickHistory.push({
+            trickNumber: gameState.trickNumber,
+            cards: gameState.currentTrick.map(tc=>({ playerIndex:tc.playerIndex, card:tc.card })),
+            winnerIndex: winnerIdx
+        });
+
+        renderTrickHistory();
+        updatePlayerStats();
+        updateTurnIndicator(`🏆 ${gameState.players[winnerIdx].name} wins the trick!`, 'winner');
+
+        if (gameState.trickNumber >= 13) {
+            setTimeout(() => endRound(), 3000);
+        } else {
+            gameState.trickNumber++;
+            gameState.currentTrick = [];
+            gameState.leadSuit     = null;
+            gameState.currentPlayerIndex = winnerIdx;
+            gameState.isProcessing = false;
+            updateGameInfo();
+            renderPlayers();
+
+            setTimeout(() => {
+                document.getElementById('trickArea').innerHTML = '<p style="text-align:center;opacity:0.5;width:100%;">Waiting for cards…</p>';
+                updateTurnIndicator();
+                const cur = gameState.players[gameState.currentPlayerIndex];
+                if (cur.isHuman) { renderPlayerHand(); }
+                else             { aiPlayCard(); }
+            }, 2000);
+        }
+    } catch(e) {
+        console.error('evaluateTrick error', e);
+        showMessage('Error – reloading…','error');
+        setTimeout(() => location.reload(), 3000);
+    }
+}
+
+// ============================================================
+// SCORING
+// ============================================================
+function endRound() {
+    gameState.phase = 'scoring';
+    gameState.players.forEach(p => {
+        const bid = p.bid, won = p.tricksWon;
+        if      (won < bid)              p.score = -10*bid;
+        else if (won >= bid && won < 2*bid) p.score = bid >= 7 ? 20*bid : 10*bid;
+        else                             p.score = -10*bid;
+        p.totalScore += p.score;
+    });
+    displayScores();
+}
+
+function displayScores() {
+    const el = document.getElementById('scoresDisplay');
+    el.classList.remove('hidden');
+    let html = `<h3>📊 Round ${gameState.roundNumber} Results</h3>`;
+    [...gameState.players].sort((a,b)=>b.totalScore-a.totalScore).forEach((p,i)=> {
+        const top = i===0;
+        const cls = p.score>0?'positive':'negative';
+        html += `<div class="score-item ${top?'winner':''}">
+            <div class="score-name">${p.name} ${top?'🏆':''}</div>
+            <div class="score-details">Bid: ${p.bid} | Won: ${p.tricksWon} |
+                Round: <span class="${cls}">${p.score>0?'+':''}${p.score}</span> |
+                Total: <strong>${p.totalScore}</strong></div></div>`;
+    });
+    html += `<button onclick="nextRound()" style="margin-top:2rem;">Next Round</button>
+             <button onclick="endGame()" class="btn-secondary" style="margin-top:1rem;">End Game</button>`;
+    el.innerHTML = html;
+    document.getElementById('trickArea').innerHTML = '';
+}
+
+function nextRound() {
+    gameState.players.forEach(p=>{ p.hand=[]; p.bid=null; p.tricksWon=0; p.score=0; });
+    gameState.roundNumber++;
+    gameState.trickNumber  = 1;
+    gameState.currentTrick = [];
+    gameState.leadSuit     = null;
+    gameState.trickHistory = [];
+    gameState.isProcessing = false;
+    document.getElementById('scoresDisplay').classList.add('hidden');
+    startNewRound();
+}
+
+function endGame() {
+    const w = gameState.players.reduce((best,p)=> p.totalScore>best.totalScore ? p : best);
+    showMessage(`🎉 Game Over! ${w.name} wins with ${w.totalScore} points!`,'success');
+    setTimeout(() => location.reload(), 5000);
+}
+
+// ============================================================
+// UI – RENDERING
+// ============================================================
+function updateGameInfo() {
+    document.getElementById('roundNumber').textContent = gameState.roundNumber;
+    document.getElementById('trumpDisplay').textContent = suits[gameState.trumpSuit].symbol;
+    document.getElementById('trickNumber').textContent  = `${gameState.trickNumber}/13`;
+}
+
+function updateTurnIndicator(customMsg, type) {
+    const bar = document.getElementById('turnIndicator');
+    const msg = document.getElementById('turnMessage');
+    if (customMsg) {
+        msg.textContent = customMsg;
+        bar.className   = 'turn-indicator ' + (type==='winner' ? 'winner-state' : '');
+        return;
+    }
+    if (gameState.phase === 'playing') {
+        const cur = gameState.players[gameState.currentPlayerIndex];
+        if (cur) {
+            if (cur.isHuman) { msg.textContent = '🎯 YOUR TURN!';            bar.className = 'turn-indicator active'; }
+            else             { msg.textContent = `⏳ ${cur.name}'s turn…`;   bar.className = 'turn-indicator'; }
+        }
+    } else {
+        msg.textContent = 'Waiting…';
+        bar.className   = 'turn-indicator';
+    }
+}
+
+function renderPlayers() {
+    const area = document.getElementById('playersArea');
+    area.innerHTML = '';
+    gameState.players.forEach((p,i) => {
+        const div = document.createElement('div');
+        div.className = `player-card ${i===gameState.currentPlayerIndex?'active':''}`;
+        div.id = `player-${i}`;
+        div.innerHTML = `
+            <div class="player-name">${p.name} ${p.isHuman?'(You)':'🤖'}</div>
+            <div class="player-stats">
+                <div class="stat"><span class="stat-label">Bid:</span> <span id="bid-${i}">${p.bid!==null?p.bid:'–'}</span></div>
+                <div class="stat"><span class="stat-label">Won:</span> <span id="won-${i}">${p.tricksWon}</span></div>
+                <div class="stat"><span class="stat-label">Score:</span> <span id="score-${i}">${p.totalScore}</span></div>
+                <div class="stat"><span class="stat-label">Cards:</span> <span id="cards-${i}">${p.hand.length}</span></div>
+            </div>`;
+        area.appendChild(div);
+    });
+}
+
+function renderPlayerHand() {
+    const el   = document.getElementById('playerHand');
+    el.innerHTML = '';
+    const human = gameState.players[0];
+    if (!human.hand.length) { el.innerHTML='<p style="text-align:center;opacity:0.5;width:100%;">No cards</p>'; return; }
+
+    const sorted = [...human.hand].sort((a,b) => {
+        const suitOrder = Object.keys(suits);
+        if (a.suit !== b.suit) return suitOrder.indexOf(a.suit) - suitOrder.indexOf(b.suit);
+        return b.value - a.value;
+    });
+
+    sorted.forEach(card => {
+        const ce = createCardElement(card);
+        if (card.suit === gameState.trumpSuit) ce.classList.add('power-set');
+
+        const myTurn   = gameState.currentPlayerIndex === 0;
+        const playing  = gameState.phase === 'playing';
+        const unlocked = myTurn && playing && !gameState.isProcessing;
+
+        if (unlocked && isCardPlayable(card, human)) {
+            ce.onclick = () => playCard(card);           // clickable
+        } else {
+            ce.classList.add('disabled');                 // grayed out
+            ce.onclick = null;
+        }
+        el.appendChild(ce);
+    });
+}
+
+function createCardElement(card) {
+    const d = document.createElement('div');
+    d.className = `card ${suits[card.suit].color}`;
+    d.innerHTML = `<div>${card.rank}</div><div class="card-suit">${suits[card.suit].symbol}</div>`;
+    return d;
+}
+
+function renderTrick() {
+    const area = document.getElementById('trickArea');
+    area.innerHTML = '';
+    if (!gameState.currentTrick.length) { area.innerHTML='<p style="text-align:center;opacity:0.5;width:100%;">Waiting…</p>'; return; }
+    gameState.currentTrick.forEach(({playerIndex, card}) => {
+        const w = document.createElement('div');
+        w.className = 'trick-card-wrapper';
+        const ce = createCardElement(card);
+        const lbl = document.createElement('div');
+        lbl.className  = 'trick-card-label';
+        lbl.textContent = gameState.players[playerIndex].name;
+        w.appendChild(ce);
+        w.appendChild(lbl);
+        area.appendChild(w);
+    });
+}
+
+function renderTrickHistory() {
+    const el = document.getElementById('historyContent');
+    if (!gameState.trickHistory.length) { el.innerHTML='<p style="text-align:center;opacity:0.5;">No tricks played yet</p>'; return; }
+    el.innerHTML = '';
+    [...gameState.trickHistory].reverse().forEach((trick, ri) => {
+        const ai   = gameState.trickHistory.length-1-ri;
+        const item = document.createElement('div');
+        item.className = `history-item ${ri===0?'latest':''}`;
+        let cardsHtml = trick.cards.map(({playerIndex,card}) => `
+            <div class="history-card ${playerIndex===trick.winnerIndex?'winner-card':''}">
+                <span style="opacity:0.7;">${gameState.players[playerIndex].name}:</span>
+                <span class="history-card-value" style="color:var(--${suits[card.suit].color});">${card.rank}${suits[card.suit].symbol}</span>
+            </div>`).join('');
+        item.innerHTML = `
+            <div class="history-trick-number">Trick ${ai+1}</div>
+            <div class="history-winner">🏆 ${gameState.players[trick.winnerIndex].name}</div>
+            <div class="history-cards">${cardsHtml}</div>`;
+        el.appendChild(item);
+    });
+    document.getElementById('historyPanel').scrollTop = 0;
+}
+
+function updatePlayerStats() {
+    gameState.players.forEach((p,i) => {
+        const w = document.getElementById(`won-${i}`);
+        const c = document.getElementById(`cards-${i}`);
+        if (w) w.textContent = p.tricksWon;
+        if (c) c.textContent = p.hand.length;
+    });
+}
+
+// ============================================================
+// MESSAGES
+// ============================================================
+function showMessage(txt, type) {
+    const el = document.getElementById('messageBox');
+    el.textContent  = txt;
+    el.classList.remove('hidden');
+    el.style.borderColor = type==='error'?'var(--accent-red)':type==='success'?'#4caf50':'var(--accent-gold)';
+}
+function hideMessage() { document.getElementById('messageBox').classList.add('hidden'); }
+</script>
+</body>
+</html>

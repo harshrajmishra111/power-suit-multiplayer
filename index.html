@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Power Suit - Strategic Card Game</title>
+    <link href="https://fonts.googleapis.com/css2?family=Righteous&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div id="app">
+        <div class="container">
+            <header>
+                <h1>⚡ POWER SUIT ⚡</h1>
+                <p class="subtitle">Strategic Card Game</p>
+            </header>
+            
+            <div class="screen active" id="menuScreen">
+                <div class="menu-screen">
+                    <div class="menu-card">
+                        <h2>🤖 Offline Mode</h2>
+                        <p>Play against AI opponents</p>
+                        <p style="font-size: 0.8rem; opacity: 0.6; margin-bottom: 1rem;">
+                            Practice your strategy with intelligent bots
+                        </p>
+                        <button onclick="window.location.href='/offline.html'">Play Offline</button>
+                    </div>
+                    
+                    <div class="menu-card">
+                        <h2>🌐 Online Mode</h2>
+                        <p>Play with friends online</p>
+                        <p style="font-size: 0.8rem; opacity: 0.6; margin-bottom: 1rem;">
+                            Create or join a room to play multiplayer
+                        </p>
+                        <button onclick="window.location.href='/online.html'">Play Online</button>
+                    </div>
+                </div>
+                
+                <div style="text-align: center; margin-top: 2rem;">
+                    <button onclick="showHowToPlay()" class="btn-secondary">📖 How to Play</button>
+                </div>
+            </div>
+            
+            <!-- How to Play Screen -->
+            <div class="screen" id="howToPlayScreen">
+                <div class="how-to-play">
+                    <h2>📖 How to Play Power Suit</h2>
+                    
+                    <h3>🎯 Objective</h3>
+                    <p>Win tricks equal to your bid and score points. The player with the highest total score wins!</p>
+                    
+                    <h3>🎴 Game Setup</h3>
+                    <p>3-4 players | Standard deck | 13 cards per player</p>
+                    <ul>
+                        <li><strong>3 Players:</strong> Remove Diamonds (39 cards total)</li>
+                        <li><strong>4 Players:</strong> Use all 52 cards</li>
+                        <li>A <strong>Trump Suit (Power Set)</strong> is randomly selected</li>
+                    </ul>
+                    
+                    <h3>⚡ The Power Set (Trump Suit)</h3>
+                    <p>The Trump Suit has ultimate power:</p>
+                    <ul>
+                        <li>ANY Trump card beats ANY non-Trump card</li>
+                        <li>Even a 2 of Trump beats an Ace of another suit!</li>
+                        <li>Cards in the Power Set have a <span style="color: var(--accent-gold);">golden glow ✨</span></li>
+                    </ul>
+                    
+                    <h3>🎲 Game Phases</h3>
+                    
+                    <div class="rule-box">
+                        <strong>Phase 1: Bidding (60 seconds)</strong>
+                        <p>Predict how many tricks you'll win (0-13). Be strategic - you want to land in the "safe zone"!</p>
+                    </div>
+                    
+                    <div class="rule-box">
+                        <strong>Phase 2: Playing Tricks</strong>
+                        <p>13 rounds of card play. Follow the rules below to play cards correctly.</p>
+                    </div>
+                    
+                    <h3>🃏 Card Playing Rules (CRITICAL)</h3>
+                    <p><strong>These rules MUST be followed in order:</strong></p>
+                    <ol>
+                        <li><strong>Must Follow Suit:</strong> If you have the led suit, you MUST play it</li>
+                        <li><strong>Must Play Higher:</strong> If you have a higher card than what's been played, you MUST play higher</li>
+                        <li><strong>Can Play Any Lower:</strong> If all your cards are lower, play any of them</li>
+                        <li><strong>Trump Only When Out:</strong> Only play Trump when you have NO cards of the led suit</li>
+                    </ol>
+                    
+                    <div class="rule-box">
+                        <strong>Example:</strong><br>
+                        Lead: 9♣ | You have: K♣, 10♣, 5♣<br>
+                        → You MUST play King or 10 (both are higher than 9)<br>
+                        → You CANNOT play the 5♣
+                    </div>
+                    
+                    <h3>🏆 Scoring System</h3>
+                    <p>Let <strong>X</strong> = your bid. Here's how scoring works:</p>
+                    
+                    <table style="width: 100%; margin: 1rem 0; border-collapse: collapse;">
+                        <tr style="background: rgba(255,255,255,0.1);">
+                            <th style="padding: 0.5rem; border: 1px solid rgba(255,255,255,0.2);">Tricks Won</th>
+                            <th style="padding: 0.5rem; border: 1px solid rgba(255,255,255,0.2);">Points</th>
+                            <th style="padding: 0.5rem; border: 1px solid rgba(255,255,255,0.2);">Zone</th>
+                        </tr>
+                        <tr>
+                            <td style="padding: 0.5rem; border: 1px solid rgba(255,255,255,0.2);">Less than X</td>
+                            <td style="padding: 0.5rem; border: 1px solid rgba(255,255,255,0.2); color: var(--accent-red);">-10X</td>
+                            <td style="padding: 0.5rem; border: 1px solid rgba(255,255,255,0.2);">PENALTY</td>
+                        </tr>
+                        <tr style="background: rgba(76,175,80,0.2);">
+                            <td style="padding: 0.5rem; border: 1px solid rgba(255,255,255,0.2);">X to (2X-1)</td>
+                            <td style="padding: 0.5rem; border: 1px solid rgba(255,255,255,0.2); color: #4caf50;">+10X</td>
+                            <td style="padding: 0.5rem; border: 1px solid rgba(255,255,255,0.2);">✅ SAFE ZONE</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 0.5rem; border: 1px solid rgba(255,255,255,0.2);">2X or more</td>
+                            <td style="padding: 0.5rem; border: 1px solid rgba(255,255,255,0.2); color: var(--accent-red);">-10X</td>
+                            <td style="padding: 0.5rem; border: 1px solid rgba(255,255,255,0.2);">PENALTY</td>
+                        </tr>
+                    </table>
+                    
+                    <div class="rule-box">
+                        <strong>High Bid Bonus (7+ tricks):</strong><br>
+                        If you bid 7 or more and succeed, you get DOUBLE points (+20X instead of +10X)!<br>
+                        Risk vs Reward: Higher bids = higher stakes!
+                    </div>
+                    
+                    <h3>💡 Strategy Tips</h3>
+                    <ul>
+                        <li>Trump cards are powerful - use them wisely</li>
+                        <li>Track which high cards and Aces have been played</li>
+                        <li>Bid conservatively - landing in the safe zone is key</li>
+                        <li>Remember: Winning too many tricks is as bad as winning too few!</li>
+                    </ul>
+                    
+                    <button onclick="hideHowToPlay()" style="margin-top: 2rem;">Back to Menu</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        function showHowToPlay() {
+            document.getElementById('menuScreen').classList.remove('active');
+            document.getElementById('howToPlayScreen').classList.add('active');
+        }
+        
+        function hideHowToPlay() {
+            document.getElementById('howToPlayScreen').classList.remove('active');
+            document.getElementById('menuScreen').classList.add('active');
+        }
+    </script>
+</body>
+</html>
