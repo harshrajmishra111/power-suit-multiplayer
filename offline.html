@@ -217,8 +217,11 @@ function dealCards() {
 function checkValidDeal() {
     const numAces = gameState.numPlayers === 3 ? 3 : 4;
     for (const p of gameState.players) {
-        if (p.hand.filter(c => c.rank === 'A').length === numAces) return false;
-        if (p.hand.filter(c => c.suit === gameState.trumpSuit).length === 0) return false;
+        const aces  = p.hand.filter(c => c.rank === 'A').length;
+        const trump = p.hand.filter(c => c.suit === gameState.trumpSuit).length;
+        if (aces === numAces) return false;   // one person holds every Ace  → reshuffle
+        if (trump === 0)      return false;   // someone has zero trump      → reshuffle
+        if (trump === 13)     return false;   // one person holds ALL trump  → reshuffle
     }
     return true;
 }
@@ -284,16 +287,59 @@ function submitBid() {
 }
 
 function calculateAIBid(player) {
-    let bid = 0;
-    bid += player.hand.filter(c => c.value >= 12).length;                          // Q K A
-    const trumps     = player.hand.filter(c => c.suit === gameState.trumpSuit);
-    const highTrumps = trumps.filter(c => c.value >= 10);
-    bid += Math.floor(trumps.length / 2) + highTrumps.length;
-    bid += player.hand.filter(c => c.rank === 'A').length;
+    /*
+     * Each card earns a fractional "expected trick wins" weight.
+     * Trump and non-trump are scored in separate passes — nothing counted twice.
+     *
+     * NON-TRUMP (evaluated per suit based on what we actually hold):
+     *   Ace   → 0.9   (almost always wins when led)
+     *   King  → 0.7   … BUT if we also hold the Ace of that suit → 0.9
+     *                   (King only loses to the Ace; if we have it, King is safe)
+     *   Queen → 0.35  … BUT if we hold A+K of same suit → 0.8
+     *                   … or just one of A/K            → 0.45
+     *
+     * TRUMP (scored once, not again in non-trump pass):
+     *   A→1.0  K→0.85  Q→0.7  J→0.5  10→0.4  9-2→0.15 each
+     */
+    const hand      = player.hand;
+    const trumpSuit = gameState.trumpSuit;
+    let   score     = 0;
 
-    if      (gameState.aiDifficulty === 'easy')   bid += Math.floor(Math.random()*5)-2;
-    else if (gameState.aiDifficulty === 'medium') bid += Math.floor(Math.random()*3)-1;
-    else                                           bid  = Math.floor(bid*0.9);
+    // ── 1. Score trump cards ──
+    hand.filter(c => c.suit === trumpSuit).forEach(c => {
+        if   (c.rank === 'A')  score += 1.0;
+        else if (c.rank === 'K')  score += 0.85;
+        else if (c.rank === 'Q')  score += 0.7;
+        else if (c.rank === 'J')  score += 0.5;
+        else if (c.rank === '10') score += 0.4;
+        else                      score += 0.15;   // 2-9 of trump
+    });
+
+    // ── 2. Score non-trump, suit by suit ──
+    const bySuit = {};
+    hand.filter(c => c.suit !== trumpSuit).forEach(c => {
+        (bySuit[c.suit] = bySuit[c.suit] || []).push(c);
+    });
+
+    Object.values(bySuit).forEach(cards => {
+        const hasA = cards.some(c => c.rank === 'A');
+        const hasK = cards.some(c => c.rank === 'K');
+        const hasQ = cards.some(c => c.rank === 'Q');
+
+        if (hasA) score += 0.9;
+        if (hasK) score += hasA ? 0.9  : 0.7;          // King safe if we hold the Ace
+        if (hasQ) {
+            if      (hasA && hasK) score += 0.8;        // A+K+Q → very safe
+            else if (hasA || hasK) score += 0.45;       // one cover card
+            else                   score += 0.35;       // bare Queen → risky
+        }
+    });
+
+    // ── 3. Round and apply difficulty noise ──
+    let bid = Math.round(score);
+    if      (gameState.aiDifficulty === 'easy')   bid += Math.floor(Math.random() * 5) - 2; // ±2
+    else if (gameState.aiDifficulty === 'medium') bid += Math.floor(Math.random() * 3) - 1; // ±1
+    else                                           bid -= 1;   // hard: conservative
 
     return Math.max(1, Math.min(13, bid));
 }
@@ -489,64 +535,126 @@ function selectEasy(playable) {
     return playable[Math.floor(Math.random()*playable.length)];
 }
 
-// ---- Medium: try to win if needed, else dump low ----
+// ---- Medium: win with minimum cost, dump minimum when losing ----
 function selectMedium(player, playable) {
-    const needed = player.bid - player.tricksWon;
+    const needed    = player.bid - player.tricksWon;
+    const trumpSuit = gameState.trumpSuit;
+
+    // ── LEADING (first card of trick) ──
     if (gameState.currentTrick.length === 0) {
-        // Leading
-        const nonTrump = playable.filter(c => c.suit !== gameState.trumpSuit);
-        if (nonTrump.length) { nonTrump.sort((a,b)=>a.value-b.value); return nonTrump[Math.floor(nonTrump.length/2)]; }
+        if (needed > 0) {
+            // Need wins → lead an Ace (non-trump first, to save trump)
+            const ntAce = playable.find(c => c.rank === 'A' && c.suit !== trumpSuit);
+            if (ntAce) return ntAce;
+            // No Ace → lead highest non-trump
+            const nonTrump = playable.filter(c => c.suit !== trumpSuit);
+            if (nonTrump.length) { nonTrump.sort((a,b) => b.value - a.value); return nonTrump[0]; }
+            // Only trump playable → lead LOWEST trump (save high ones)
+            playable.sort((a,b) => a.value - b.value);
+            return playable[0];
+        }
+        // Don't need wins → dump lowest non-trump
+        const nonTrump = playable.filter(c => c.suit !== trumpSuit);
+        if (nonTrump.length) { nonTrump.sort((a,b) => a.value - b.value); return nonTrump[0]; }
+        playable.sort((a,b) => a.value - b.value);
         return playable[0];
     }
-    if (needed > 0) { playable.sort((a,b)=>b.value-a.value); return playable[0]; }
-    playable.sort((a,b)=>a.value-b.value);
+
+    // ── FOLLOWING ──
+    const winner       = getCurrentTrickWinner();
+    const winningCards = getWinningCards(playable, winner);
+
+    if (needed > 0 && winningCards.length > 0) {
+        // Win with the LOWEST winning card — save big cards for later
+        winningCards.sort((a,b) => a.value - b.value);
+        return winningCards[0];
+    }
+    // Can't win or don't need to → dump lowest
+    playable.sort((a,b) => a.value - b.value);
     return playable[0];
 }
 
-// ---- Hard: smart – win with lowest winner, dump lowest loser ----
+// ---- Hard: full strategic play ----
 function selectHard(player, playable) {
-    const needed = player.bid - player.tricksWon;
+    const needed    = player.bid - player.tricksWon;
+    const trumpSuit = gameState.trumpSuit;
 
+    // ── LEADING ──
     if (gameState.currentTrick.length === 0) {
-        // Leading
         if (needed > 0) {
-            const high = playable.filter(c => c.value >= 11 && c.suit !== gameState.trumpSuit);
-            if (high.length) { high.sort((a,b)=>b.value-a.value); return high[0]; }
-            playable.sort((a,b)=>b.value-a.value);
+            // Lead the card most likely to win outright.
+            // Priority: non-trump Ace → King where we also hold its Ace → trump Ace (only if we need ≥2 wins)
+            const ntAce = playable.find(c => c.rank === 'A' && c.suit !== trumpSuit);
+            if (ntAce) return ntAce;
+
+            const safeKing = playable.find(c => c.rank === 'K' && c.suit !== trumpSuit &&
+                player.hand.some(h => h.suit === c.suit && h.rank === 'A'));
+            if (safeKing) return safeKing;
+
+            const tAce = playable.find(c => c.suit === trumpSuit && c.rank === 'A');
+            if (tAce && needed >= 2) return tAce;
+
+            // Fall back: highest non-trump
+            const nonTrump = playable.filter(c => c.suit !== trumpSuit);
+            if (nonTrump.length) { nonTrump.sort((a,b) => b.value - a.value); return nonTrump[0]; }
+
+            // Only trump playable → lead LOWEST trump (save high ones for later)
+            playable.sort((a,b) => a.value - b.value);
             return playable[0];
         }
-        // Don't need wins – lead lowest non-trump
-        const nonTrump = playable.filter(c => c.suit !== gameState.trumpSuit);
-        if (nonTrump.length) { nonTrump.sort((a,b)=>a.value-b.value); return nonTrump[0]; }
-        playable.sort((a,b)=>a.value-b.value);
+        // Don't need wins → dump lowest non-trump
+        const nonTrump = playable.filter(c => c.suit !== trumpSuit);
+        if (nonTrump.length) { nonTrump.sort((a,b) => a.value - b.value); return nonTrump[0]; }
+        playable.sort((a,b) => a.value - b.value);
         return playable[0];
     }
 
-    // Following – figure out current winner
-    const winner = getCurrentTrickWinner();
-    const trumpSuit = gameState.trumpSuit;
-    const leadSuit  = gameState.leadSuit;
-
-    // Which of my playable cards actually beat the current winner?
-    const winningCards = playable.filter(c => {
-        if (winner.card.suit === trumpSuit) {
-            // current winner is trump – only higher trump beats it
-            return c.suit === trumpSuit && c.value > winner.card.value;
-        }
-        // current winner is lead suit – trump OR higher lead suit beats it
-        if (c.suit === trumpSuit) return true;
-        if (c.suit === leadSuit && c.value > winner.card.value) return true;
-        return false;
-    });
+    // ── FOLLOWING ──
+    const winner       = getCurrentTrickWinner();
+    const winningCards = getWinningCards(playable, winner);
 
     if (needed > 0 && winningCards.length > 0) {
-        // Win with the LOWEST winning card (save big cards)
-        winningCards.sort((a,b)=>a.value-b.value);
-        return winningCards[0];
+        /*
+         * Win with the CHEAPEST card that beats the current leader.
+         *
+         * Key case (the bug): lead=Hearts, PowerSet=Spades, bot has no Hearts.
+         * Every trump wins. We MUST pick 2♠, not A♠.
+         *
+         * Extra: if we can win with a suit card (higher lead-suit card) prefer that
+         * over spending trump — trump is more versatile across all future tricks.
+         */
+        const trumpWinners = winningCards.filter(c => c.suit === trumpSuit);
+        const suitWinners  = winningCards.filter(c => c.suit !== trumpSuit);
+
+        if (suitWinners.length > 0) {
+            // Can win without using trump → lowest suit winner
+            suitWinners.sort((a,b) => a.value - b.value);
+            return suitWinners[0];
+        }
+        // Only trump can win → lowest trump
+        trumpWinners.sort((a,b) => a.value - b.value);
+        return trumpWinners[0];
     }
-    // Can't win or don't need to – play LOWEST card (don't waste Q/K)
-    playable.sort((a,b)=>a.value-b.value);
+
+    // Can't win or don't need to → dump cheapest card
+    playable.sort((a,b) => a.value - b.value);
     return playable[0];
+}
+
+// ── Shared helper: which of my playable cards actually beat the current trick winner? ──
+function getWinningCards(playable, winner) {
+    const trumpSuit = gameState.trumpSuit;
+    const leadSuit  = gameState.leadSuit;
+    return playable.filter(c => {
+        if (winner.card.suit === trumpSuit) {
+            // Winner played trump → only a HIGHER trump beats it
+            return c.suit === trumpSuit && c.value > winner.card.value;
+        }
+        // Winner played lead suit (no trump winning yet)
+        if (c.suit === trumpSuit)                               return true;   // any trump beats non-trump
+        if (c.suit === leadSuit && c.value > winner.card.value) return true;   // higher card of lead suit
+        return false;
+    });
 }
 
 function getCurrentTrickWinner() {
